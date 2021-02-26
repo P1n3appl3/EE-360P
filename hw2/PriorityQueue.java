@@ -1,157 +1,148 @@
 // jkj858
 // jbr2558
 
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.*;
-import java.util.Arrays;
 
 public class PriorityQueue {
-    Node head;
-    int maxSize;
-    ReentrantLock headLock;
+    final Node head;
+    final Semaphore notEmpty;
+    final Semaphore notFull;
 
     public PriorityQueue(int maxSize) {
-        head = null;
-        this.maxSize = maxSize;
-        headLock = new ReentrantLock();
+        head = new Node("Head", 10);
+        head.next = new Node("Tail", -1);
+        notEmpty = new Semaphore(0);
+        notFull = new Semaphore(maxSize);
     }
 
+    // Adds the name with its priority to this queue.
+    // Returns the current position in the list where the name was inserted;
+    // otherwise, returns -1 if the name is already present in the list.
+    // This method blocks when the list is full.
     public int add(String name, int priority) {
-        // Adds the name with its priority to this queue.
-        // Returns the current position in the list where the name was inserted;
-        // otherwise, returns -1 if the name is already present in the list.
-        // This method blocks when the list is full.
-        if (search(name) != -1) {
-            return -1;
-        }
+        try {
+            notFull.acquire();
+        } catch (InterruptedException e) { e.printStackTrace(); }
 
-        headLock.lock();
-        if (head == null) {
-            head = new Node(name, priority);
-            headLock.unlock();
-            return 0;
-        }
-
+        head.lock();
         int index = 0;
-
         Node curr = head;
-        if (priority > curr.priority) {
-            Node n = new Node(name, priority);
-            n.next = curr;
-            head = n;
-            headLock.unlock();
-            return 0;
-        }
-        headLock.unlock();
 
-        curr.lock.lock();
-
-        while (curr.next != null) {
-            Node next = curr.next;
-            next.lock.lock();
-
-            ////System.out.println(curr.priority + " " + priority + " " + next.priority);
-            if (priority <= curr.priority && priority > next.priority) {
-                Node n = new Node(name, priority);
-                curr.next = n;
-                n.next = next;
-                curr.lock.unlock();
-                next.lock.unlock();
-                return index;
+        // find the insertion point (bailing if we find a duplicate)
+        while (curr.next.priority > priority) {
+            if (curr.next.name.equals(name)) {
+                curr.unlock();
+                notFull.release();
+                return -1;
             }
-            
-            Node temp = curr;
-            curr = next;
-            temp.lock.unlock();
-
-            index++;
+            // move the lock to the next node making sure no one can swap it out
+            // from under us
+            curr.next.lock();
+            Node prev = curr;
+            curr = curr.next;
+            prev.unlock();
+            ++index;
         }
 
-        Node n = new Node(name, priority);
-        curr.next = n;
-        curr.lock.unlock();
+        // now go through the rest of the queue to make sure there arent
+        // duplicates we leave the lock back at the insertion point so no one
+        // can progress
+        curr.next.lock();
+        Node temp = curr.next;
+        while (temp.priority != -1) {
+            if (temp.name.equals(name)) {
+                temp.unlock();
+                curr.unlock();
+                notFull.release();
+                return -1;
+            }
+            temp.next.lock();
+            Node prev = temp;
+            temp = temp.next;
+            prev.unlock();
+        }
+        temp.unlock();
+
+        // finally insert the new node and remove the lock
+        temp = curr.next;
+        curr.next = new Node(name, priority);
+        curr.next.next = temp;
+        notEmpty.release();
+        curr.unlock();
         return index;
     }
 
+    // Returns the position of the name in the list;
+    // otherwise, returns -1 if the name is not found.
     public int search(String name) {
-        // Returns the position of the name in the list;
-        // otherwise, returns -1 if the name is not found.
-        headLock.lock();
+        head.lock();
         Node curr = head;
-        headLock.unlock();
-        for (int i = 0; curr != null; i++) {
-            curr.lock.lock();
+        for (int i = 0; curr.next.priority != -1; ++i) {
+            // swap the lock to the next node
+            curr.next.lock();
+            Node prev = curr;
+            curr = curr.next;
+            prev.unlock();
+            // ... and check its name
             if (curr.name.equals(name)) {
-                curr.lock.unlock();
+                curr.unlock();
                 return i;
             }
-            Node temp = curr;
-            curr = curr.next;
-            temp.lock.unlock();
         }
-
+        curr.unlock();
         return -1;
     }
 
+    // Retrieves and removes the name with the highest priority in the list,
+    // or blocks the thread if the list is empty.
     public String getFirst() {
-        // Retrieves and removes the name with the highest priority in the list,
-        // or blocks the thread if the list is empty.
-        while (true) {
-            headLock.lock();
-            if (head != null) {
-                Node h = head;
-                h.lock.lock();
+        try {
+            notEmpty.acquire();
+        } catch (InterruptedException e) { e.printStackTrace(); }
 
-                if (h.next != null) {
-                    h.next.lock.lock();
-                    head = h.next;
-                } else {
-                    head = null;
-                }
+        // need to lock the head and the 2 following nodes so we can take out
+        // the one in between
+        head.lock();
+        head.next.lock();
+        Node temp = head.next;
+        temp.next.lock();
+        head.next = temp.next;
+        head.next.unlock();
+        temp.unlock();
+        head.unlock();
 
-                String name = h.name;
-
-                if (head != null) {
-                    head.lock.unlock();
-                }
-                headLock.unlock();
-                return name;
-            }
-            headLock.unlock();
-        }
+        notFull.release();
+        return temp.name;
     }
 
     @Override
     public String toString() {
         String str = "[";
-
-        Node curr = head;
-        while (curr != null) {
+        Node curr = head.next;
+        while (curr.next.priority != -1) {
             str += curr.toString() + ", ";
             curr = curr.next;
         }
-        str += "]";
-
-        return str;
+        return str + curr.toString() + "]";
     }
 
     class Node {
-        String name;
-        int priority;
-        public ReentrantLock lock;
+        public String name;
+        public int priority;
         public Node next;
+        private ReentrantLock lock;
 
         public Node(String name, int priority) {
             this.name = name;
             this.priority = priority;
-            this.next = null;
-
             lock = new ReentrantLock();
         }
-
+        public void lock() { lock.lock(); }
+        public void unlock() { lock.unlock(); }
         @Override
         public String toString() {
-            String str = name + ": " + priority;
-            return str;
+            return name + ":" + priority;
         }
     }
 }
