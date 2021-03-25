@@ -27,7 +27,6 @@ public class BookServer {
         students = new LinkedHashMap<>();
         lock = new ReentrantLock();
 
-        // parse the inventory file
         try {
             BufferedReader reader = new BufferedReader(new FileReader(args[0]));
             String line = reader.readLine();
@@ -133,6 +132,14 @@ public class BookServer {
             }
             lock.unlock();
             return result;
+        case 'e': 
+            PrintWriter out = null;
+            try { out = new PrintWriter("inventory.txt");
+            } catch (Exception e) {e.printStackTrace();}
+            for (Entry e : books.entrySet()) {
+                out.println(e.getKey() + " " + e.getValue());
+            }
+            out.close();
         }
         return "RIP";
     }
