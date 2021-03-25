@@ -10,7 +10,7 @@ public class BookClient {
     static Socket tcpSocket;
     static int clientId;
 
-    final static String hostAddress = "192.168.1.13";
+    final static String hostAddress = "localhost";
 
     final static int tcpPort = 7000;
     final static int udpPort = 8000;
@@ -107,7 +107,10 @@ public class BookClient {
                 //System.out.println("List: " + student);
 
                 sendData("l|" + student);
-                writer.println(getData());
+                String list = getData();
+                for (String s : list.split("\\|")) {
+                    writer.println(s);
+                }
             } else if (tokens[0].equals("exit")) {
                 sendData("e"); 
                 break;
